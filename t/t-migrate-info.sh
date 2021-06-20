@@ -282,10 +282,52 @@ begin_test "migrate info (above threshold, top)"
 
   setup_multiple_local_branches
 
+  base64 < /dev/urandom | head -c 160 > b.bin
+  git add b.bin
+  git commit -m "b.bin"
+
   original_head="$(git rev-parse HEAD)"
 
+  # Ensure command reports only single highest entry due to --top=1 argument.
   diff -u <(git lfs migrate info --above=130B --top=1 2>&1 | tail -n 1) <(cat <<-EOF
-	*.md	140 B	1/1 files(s)	100%
+	*.bin	160 B	1/1 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (top)"
+(
+  set -e
+
+  setup_multiple_local_branches
+
+  base64 < /dev/urandom | head -c 160 > b.bin
+  git add b.bin
+  git commit -m "b.bin"
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure command reports nothing if --top argument is less than zero.
+  [ "0" -eq "$(git lfs migrate info --everything --top=-1 2>/dev/null | wc -l)" ]
+
+  # Ensure command reports nothing if --top argument is zero.
+  [ "0" -eq "$(git lfs migrate info --everything --top=0 2>/dev/null | wc -l)" ]
+
+  # Ensure command reports no more entries than specified by --top argument.
+  diff -u <(git lfs migrate info --everything --top=2 2>&1 | tail -n 2) <(cat <<-EOF
+	*.md 	170 B	2/2 files(s)	100%
+	*.bin	160 B	1/1 files(s)	100%
+	EOF)
+
+  # Ensure command succeeds if --top argument is greater than total number of entries.
+  diff -u <(git lfs migrate info --everything --top=10 2>&1 | tail -n 3) <(cat <<-EOF
+	*.md 	170 B	2/2 files(s)	100%
+	*.bin	160 B	1/1 files(s)	100%
+	*.txt	120 B	1/1 files(s)	100%
 	EOF)
 
   migrated_head="$(git rev-parse HEAD)"
@@ -340,7 +382,7 @@ begin_test "migrate info (empty set)"
     --exclude-ref=refs/heads/main 2>/dev/null
   )"
 
-  [ "0" -eq "$(echo -n "$migrate" | wc -l | awk '{ print $1 }')" ]
+  [ "0" -eq "$(echo -n "$migrate" | wc -c | awk '{ print $1 }')" ]
 )
 end_test
 
@@ -353,8 +395,6 @@ begin_test "migrate info (no-extension files)"
 
   original_main="$(git rev-parse refs/heads/main)"
   original_feature="$(git rev-parse refs/heads/my-feature)"
-
-  git lfs migrate info --everything
 
   diff -u <(git lfs migrate info --everything 2>&1 | tail -n 2) <(cat <<-EOF
 	no_extension	220 B	2/2 files(s)	100%
@@ -392,6 +432,319 @@ begin_test "migrate info (--everything)"
 )
 end_test
 
+begin_test "migrate info (--fixup, no .gitattributes)"
+(
+  set -e
+
+  setup_multiple_local_branches
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "fixup" command reports nothing if no files are tracked by LFS.
+  [ "0" -eq "$(git lfs migrate info --everything --fixup 2>/dev/null | wc -l)" ]
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (all files tracked)"
+(
+  set -e
+
+  setup_single_local_branch_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure default command reports objects if all files are tracked by LFS.
+  diff -u <(git lfs migrate info 2>&1 | tail -n 3) <(cat <<-EOF
+	*.gitattributes	83 B 	1/1 files(s)	100%
+
+	LFS Objects    	260 B	2/2 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --pointers=follow)"
+(
+  set -e
+
+  setup_single_local_branch_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "follow" command reports objects if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --pointers=follow 2>&1 | tail -n 3) <(cat <<-EOF
+	*.gitattributes	83 B 	1/1 files(s)	100%
+
+	LFS Objects    	260 B	2/2 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --pointers=no-follow)"
+(
+  set -e
+
+  setup_single_local_branch_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "no-follow" command reports pointers if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --pointers=no-follow 2>&1 | tail -n 3) <(cat <<-EOF
+	*.md           	128 B	1/1 files(s)	100%
+	*.txt          	128 B	1/1 files(s)	100%
+	*.gitattributes	83 B 	1/1 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --pointers=ignore)"
+(
+  set -e
+
+  setup_single_local_branch_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "ignore" command reports no objects if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --pointers=ignore 2>&1 | tail -n 1) <(cat <<-EOF
+	*.gitattributes	83 B	1/1 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --fixup)"
+(
+  set -e
+
+  setup_single_local_branch_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "fixup" command reports nothing if all files are tracked by LFS.
+  [ "0" -eq "$(git lfs migrate info --fixup 2>/dev/null | wc -l)" ]
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --everything)"
+(
+  set -e
+
+  setup_multiple_local_branches_tracked
+
+  original_main="$(git rev-parse refs/heads/main)"
+  original_feature="$(git rev-parse refs/heads/my-feature)"
+
+  # Ensure default command reports objects if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --everything 2>&1 | tail -n 3) <(cat <<-EOF
+	*.gitattributes	83 B 	1/1 files(s)	100%
+
+	LFS Objects    	290 B	3/3 files(s)	100%
+	EOF)
+
+  migrated_main="$(git rev-parse refs/heads/main)"
+  migrated_feature="$(git rev-parse refs/heads/my-feature)"
+
+  assert_ref_unmoved "refs/heads/main" "$original_main" "$migrated_main"
+  assert_ref_unmoved "refs/heads/my-feature" "$original_feature" "$migrated_feature"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --everything and --pointers=follow)"
+(
+  set -e
+
+  setup_multiple_local_branches_tracked
+
+  original_main="$(git rev-parse refs/heads/main)"
+  original_feature="$(git rev-parse refs/heads/my-feature)"
+
+  # Ensure "follow" command reports objects if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --everything --pointers=follow 2>&1 | tail -n 3) <(cat <<-EOF
+	*.gitattributes	83 B 	1/1 files(s)	100%
+
+	LFS Objects    	290 B	3/3 files(s)	100%
+	EOF)
+
+  migrated_main="$(git rev-parse refs/heads/main)"
+  migrated_feature="$(git rev-parse refs/heads/my-feature)"
+
+  assert_ref_unmoved "refs/heads/main" "$original_main" "$migrated_main"
+  assert_ref_unmoved "refs/heads/my-feature" "$original_feature" "$migrated_feature"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --everything and --pointers=no-follow)"
+(
+  set -e
+
+  setup_multiple_local_branches_tracked
+
+  original_main="$(git rev-parse refs/heads/main)"
+  original_feature="$(git rev-parse refs/heads/my-feature)"
+
+  # Ensure "no-follow" command reports pointers if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --everything --pointers=no-follow 2>&1 | tail -n 3) <(cat <<-EOF
+	*.md           	255 B	2/2 files(s)	100%
+	*.txt          	128 B	1/1 files(s)	100%
+	*.gitattributes	83 B 	1/1 files(s)	100%
+	EOF)
+
+  migrated_main="$(git rev-parse refs/heads/main)"
+  migrated_feature="$(git rev-parse refs/heads/my-feature)"
+
+  assert_ref_unmoved "refs/heads/main" "$original_main" "$migrated_main"
+  assert_ref_unmoved "refs/heads/my-feature" "$original_feature" "$migrated_feature"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --everything and --pointers=ignore)"
+(
+  set -e
+
+  setup_multiple_local_branches_tracked
+
+  original_main="$(git rev-parse refs/heads/main)"
+  original_feature="$(git rev-parse refs/heads/my-feature)"
+
+  # Ensure "ignore" command reports no objects if all files are tracked by LFS.
+  diff -u <(git lfs migrate info --everything --pointers=ignore 2>&1 | tail -n 1) <(cat <<-EOF
+	*.gitattributes	83 B	1/1 files(s)	100%
+	EOF)
+
+  migrated_main="$(git rev-parse refs/heads/main)"
+  migrated_feature="$(git rev-parse refs/heads/my-feature)"
+
+  assert_ref_unmoved "refs/heads/main" "$original_main" "$migrated_main"
+  assert_ref_unmoved "refs/heads/my-feature" "$original_feature" "$migrated_feature"
+)
+end_test
+
+begin_test "migrate info (all files tracked, --everything and --fixup)"
+(
+  set -e
+
+  setup_multiple_local_branches_tracked
+
+  original_main="$(git rev-parse refs/heads/main)"
+  original_feature="$(git rev-parse refs/heads/my-feature)"
+
+  # Ensure "fixup" command reports nothing if all files are tracked by LFS.
+  [ "0" -eq "$(git lfs migrate info --everything --fixup 2>/dev/null | wc -l)" ]
+
+  migrated_main="$(git rev-parse refs/heads/main)"
+  migrated_feature="$(git rev-parse refs/heads/my-feature)"
+
+  assert_ref_unmoved "refs/heads/main" "$original_main" "$migrated_main"
+  assert_ref_unmoved "refs/heads/my-feature" "$original_feature" "$migrated_feature"
+)
+end_test
+
+begin_test "migrate info (potential fixup)"
+(
+  set -e
+
+  setup_single_local_branch_tracked_corrupt
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure command reports files which should be tracked but have not been
+  # stored properly as LFS pointers.
+  diff -u <(git lfs migrate info 2>&1 | tail -n 2) <(cat <<-EOF
+	*.txt          	120 B	1/1 files(s)	100%
+	*.gitattributes	42 B 	1/1 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (potential fixup, --fixup)"
+(
+  set -e
+
+  setup_single_local_branch_tracked_corrupt
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "fixup" command reports files which should be tracked but have not
+  # been stored properly as LFS pointers, and ignores .gitattributes files.
+  diff -u <(git lfs migrate info --fixup 2>&1 | tail -n 1) <(cat <<-EOF
+	*.txt	120 B	1/1 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (potential fixup, complex nested)"
+(
+  set -e
+
+  setup_single_local_branch_complex_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure command reports the file which should be tracked but has not been
+  # stored properly (a.txt) and the file which is not tracked (dir/b.txt).
+  diff -u <(git lfs migrate info 2>&1 | tail -n 2) <(cat <<-EOF
+	*.gitattributes	69 B	2/2 files(s)	100%
+	*.txt          	2 B 	2/2 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
+begin_test "migrate info (potential fixup, complex nested, --fixup)"
+(
+  set -e
+
+  setup_single_local_branch_complex_tracked
+
+  original_head="$(git rev-parse HEAD)"
+
+  # Ensure "fixup" command reports the file which should be tracked but has not
+  # been stored properly (a.txt), and ignores .gitattributes files and
+  # the file which is not tracked (dir/b.txt).
+  diff -u <(git lfs migrate info --fixup 2>&1 | tail -n 1) <(cat <<-EOF
+	*.txt	1 B	1/1 files(s)	100%
+	EOF)
+
+  migrated_head="$(git rev-parse HEAD)"
+
+  assert_ref_unmoved "HEAD" "$original_head" "$migrated_head"
+)
+end_test
+
 begin_test "migrate info (ambiguous reference)"
 (
   set -e
@@ -413,8 +766,15 @@ begin_test "migrate info (--everything with args)"
 
   setup_multiple_local_branches
 
-  [ "$(git lfs migrate info --everything main 2>&1)" = \
-    "fatal: cannot use --everything with explicit reference arguments" ]
+  git lfs migrate info --everything main 2>&1 | tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 1 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --everything with explicit reference arguments" \
+    migrate.log
 )
 end_test
 
@@ -424,12 +784,18 @@ begin_test "migrate info (--everything with --include-ref)"
 
   setup_multiple_local_branches
 
-  [ "$(git lfs migrate info --everything --include-ref=refs/heads/main 2>&1)" = \
-    "fatal: cannot use --everything with --include-ref or --exclude-ref" ]
+  git lfs migrate info --everything --include-ref=refs/heads/main 2>&1 | \
+    tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 1 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --everything with --include-ref or --exclude-ref" \
+    migrate.log
 )
 end_test
-
-exit 0
 
 begin_test "migrate info (--everything with --exclude-ref)"
 (
@@ -437,7 +803,104 @@ begin_test "migrate info (--everything with --exclude-ref)"
 
   setup_multiple_local_branches
 
-  [ "$(git lfs migrate info --everything --exclude-ref=refs/heads/main 2>&1)" = \
-    "fatal: cannot use --everything with --include-ref or --exclude-ref" ]
+  git lfs migrate info --everything --exclude-ref=refs/heads/main 2>&1 | \
+    tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 1 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --everything with --include-ref or --exclude-ref" \
+    migrate.log
+)
+end_test
+
+begin_test "migrate info (--pointers invalid)"
+(
+  set -e
+
+  setup_multiple_local_branches
+
+  git lfs migrate info --everything --pointers=foo 2>&1 | tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 1 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: unsupported --pointers option value" migrate.log
+)
+end_test
+
+begin_test "migrate info (--fixup, --pointers=follow)"
+(
+  set -e
+
+  setup_single_local_branch_tracked_corrupt
+
+  git lfs migrate info --everything --fixup --pointers=follow 2>&1 \
+    | tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 1 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --fixup with --pointers=follow" migrate.log
+)
+end_test
+
+begin_test "migrate info (--fixup, --pointers=no-follow)"
+(
+  set -e
+
+  setup_single_local_branch_tracked_corrupt
+
+  git lfs migrate info --everything --fixup --pointers=no-follow 2>&1 \
+    | tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --fixup with --pointers=no-follow" migrate.log
+)
+end_test
+
+begin_test "migrate info (--fixup, --include)"
+(
+  set -e
+
+  setup_single_local_branch_tracked_corrupt
+
+  git lfs migrate info --everything --fixup --include="*.txt" 2>&1 \
+    | tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --fixup with --include, --exclude" migrate.log
+)
+end_test
+
+begin_test "migrate info (--fixup, --exclude)"
+(
+  set -e
+
+  setup_single_local_branch_tracked_corrupt
+
+  git lfs migrate info --everything --fixup --exclude="*.txt" 2>&1 \
+    | tee migrate.log
+
+  if [ "${PIPESTATUS[0]}" -eq 0 ]; then
+    echo >&2 "fatal: expected 'git lfs migrate ...' to fail, didn't ..."
+    exit 1
+  fi
+
+  grep -q "fatal: cannot use --fixup with --include, --exclude" migrate.log
 )
 end_test

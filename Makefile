@@ -175,6 +175,7 @@ BUILD = GOOS=$(1) GOARCH=$(2) \
 # built for.
 BUILD_TARGETS = \
 	bin/git-lfs-darwin-amd64 \
+	bin/git-lfs-darwin-arm64 \
 	bin/git-lfs-linux-arm \
 	bin/git-lfs-linux-arm64 \
 	bin/git-lfs-linux-amd64 \
@@ -195,7 +196,7 @@ mangen : commands/mancontent_gen.go
 # 'commands' of Git LFS. It depends upon the contents of the 'docs' directory
 # and converts those manpages into code.
 commands/mancontent_gen.go : $(wildcard docs/man/*.ronn)
-	$(GO) generate github.com/git-lfs/git-lfs/commands
+	GOOS= GOARCH= $(GO) generate github.com/git-lfs/git-lfs/commands
 
 # Targets 'all' and 'build' build binaries of Git LFS for the above release
 # matrix.
@@ -212,6 +213,8 @@ all build : $(BUILD_TARGETS)
 # embeds the versioninfo into the binary.
 bin/git-lfs-darwin-amd64 : $(SOURCES) mangen
 	$(call BUILD,darwin,amd64,-darwin-amd64)
+bin/git-lfs-darwin-arm64 : $(SOURCES) mangen
+	$(call BUILD,darwin,arm64,-darwin-arm64)
 bin/git-lfs-linux-arm : $(SOURCES) mangen
 	GOARM=5 $(call BUILD,linux,arm,-linux-arm)
 bin/git-lfs-linux-arm64 : $(SOURCES) mangen
@@ -276,6 +279,7 @@ script/windows-installer/git-lfs-wizard-image.bmp
 # 	make VERSION=my-version bin/releases/git-lfs-darwin-amd64-my-version.tar.gz
 RELEASE_TARGETS = \
 	bin/releases/git-lfs-darwin-amd64-$(VERSION).zip \
+	bin/releases/git-lfs-darwin-arm64-$(VERSION).zip \
 	bin/releases/git-lfs-linux-arm-$(VERSION).tar.gz \
 	bin/releases/git-lfs-linux-arm64-$(VERSION).tar.gz \
 	bin/releases/git-lfs-linux-amd64-$(VERSION).tar.gz \
@@ -332,6 +336,7 @@ $(RELEASE_INCLUDES) bin/git-lfs-darwin-% script/install.sh
 # CRLF in the non-binary components of the artifact.
 bin/releases/git-lfs-windows-%-$(VERSION).zip : $(RELEASE_INCLUDES) bin/git-lfs-windows-%.exe
 	@mkdir -p bin/releases
+	rm -f $@
 	zip -j -l $@ $^
 	zip -u $@ man/*
 
@@ -399,11 +404,11 @@ release-windows-rebuild: bin/releases/git-lfs-windows-assets-$(VERSION).tar.gz
 #
 # You may sign with a different certificate by specifying DARWIN_CERT_ID.
 .PHONY : release-darwin
-release-darwin: bin/releases/git-lfs-darwin-amd64-$(VERSION).zip
+release-darwin: bin/releases/git-lfs-darwin-amd64-$(VERSION).zip bin/releases/git-lfs-darwin-arm64-$(VERSION).zip
 	for i in $^; do \
 		temp=$$(mktemp -d) && \
 		( \
-			unzip -d "$$temp" $^ && \
+			unzip -d "$$temp" "$$i" && \
 			codesign --keychain $(DARWIN_KEYCHAIN_ID) -s "$(DARWIN_CERT_ID)" --force --timestamp -vvvv --options runtime "$$temp/git-lfs" && \
 			codesign -dvvv "$$temp/git-lfs" && \
 			zip -j $$i "$$temp/git-lfs" && \

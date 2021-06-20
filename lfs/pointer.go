@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/git-lfs/git-lfs/errors"
+	"github.com/git-lfs/gitobj/v2"
 )
 
 var (
@@ -22,7 +23,7 @@ var (
 	}
 	latest      = "https://git-lfs.github.com/spec/v1"
 	oidType     = "sha256"
-	oidRE       = regexp.MustCompile(`\A[[:alnum:]]{64}`)
+	oidRE       = regexp.MustCompile(`\A[0-9a-f]{64}\z`)
 	matcherRE   = regexp.MustCompile("git-media|hawser|git-lfs")
 	extRE       = regexp.MustCompile(`\Aext-\d{1}-\w+`)
 	pointerKeys = []string{"version", "oid", "size"}
@@ -81,13 +82,21 @@ func EncodePointer(writer io.Writer, pointer *Pointer) (int, error) {
 	return writer.Write([]byte(pointer.Encoded()))
 }
 
+func DecodePointerFromBlob(b *gitobj.Blob) (*Pointer, error) {
+	// Check size before reading
+	if b.Size >= blobSizeCutoff {
+		return nil, errors.NewNotAPointerError(errors.New("blob size exceeds lfs pointer size cutoff"))
+	}
+	return DecodePointer(b.Contents)
+}
+
 func DecodePointerFromFile(file string) (*Pointer, error) {
 	// Check size before reading
 	stat, err := os.Stat(file)
 	if err != nil {
 		return nil, err
 	}
-	if stat.Size() > blobSizeCutoff {
+	if stat.Size() >= blobSizeCutoff {
 		return nil, errors.NewNotAPointerError(errors.New("file size exceeds lfs pointer size cutoff"))
 	}
 	f, err := os.OpenFile(file, os.O_RDONLY, 0644)
